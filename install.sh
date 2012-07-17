@@ -7,9 +7,9 @@ sudo wget --output-document=/usr/bin/ppm http://raw.github.com/makesites/ppm/mas
 sudo chmod ugo+x /usr/bin/ppm
 
 # make the global config file
-touch ~/.ppm
-chmod 600 ~/.ppm
-cat > ~/.ppm <<END
+sudo touch ~/.ppm
+sudo chmod 600 ~/.ppm
+sudo cat > ~/.ppm <<END
 ; Start a new pool named 'www'.
 [core]
 
