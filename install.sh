@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # copy the ppm 
-sudo wget --output-document=/usr/bin/ppm http://raw.github.com/makesites/ppm/master/bin/ppm
+sudo wget --output-document=/usr/bin/ppm https://raw.github.com/makesites/ppm/master/bin/ppm
 
 # make it executable
 sudo chmod ugo+x /usr/bin/ppm
@@ -10,9 +10,10 @@ sudo chmod ugo+x /usr/bin/ppm
 sudo touch ~/.ppm
 sudo chmod 600 ~/.ppm
 sudo cat > ~/.ppm <<END
-; Start a new pool named 'www'.
+; main configuration
 [core]
 
+; list of repositories
 [repositories]
 	github = git://github.com/
 
