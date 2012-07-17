@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# lookup the global config file
+GLOBAL_CONFIG=~/.ppm
+if [ ! -f $GLOBAL_CONFIG ];
+then
+    echo "Configuration not found!"
+    exit
+fi
+
+# look for a config file locally
+LOCAL_CONFIG=.ppm
+if [ -f $LOCAL_CONFIG ];
+then
+    # merge with global config
+    
+fi
+
+# look for a config file locally
+PACKAGE_INFO=composer.json
+if [ ! -f $PACKAGE_INFO ];
+then
+    echo "Package information not available!"
+    exit
+fi
+
+# parse packagr info
+json=`curl -s -X GET $PACKAGE_INFO`
+prop='require'
+picurl=`jsonval`
+
+echo $picurl
+
+
+
+# Helpers
+# - parse JSON string
+function jsonval {
+    temp=`echo $json | sed 's/\\\\\//\//g' | sed 's/[{}]//g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed 's/\"\:\"/\|/g' | sed 's/[\,]/ /g' | sed 's/\"//g' | grep -w $prop`
+    echo ${temp##*|}
+}
+
