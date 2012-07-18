@@ -8,11 +8,11 @@ sudo chmod ugo+x /usr/bin/ppm
 
 # make the global config file
 sudo touch ~/.ppm
-sudo chmod 600 ~/.ppm
+sudo chmod 660 ~/.ppm
 sudo cat > ~/.ppm <<END
 ; main configuration
 [core]
-
+	modules_folder = ./modules
 ; list of repositories
 [repositories]
 	github = git://github.com/

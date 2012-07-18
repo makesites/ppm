@@ -1,42 +1,230 @@
 #!/bin/bash
 
-# lookup the global config file
-GLOBAL_CONFIG=~/.ppm
-if [ ! -f $GLOBAL_CONFIG ];
-then
-    echo "Configuration not found!"
-    exit
-fi
 
-# look for a config file locally
-LOCAL_CONFIG=.ppm
-if [ -f $LOCAL_CONFIG ];
-then
-    # merge with global config
+# Functions
+###################################
+
+function getAction() {
+	if [ $# -lt 1 ] || [ $1 != "install" ]; then
+    	die "action not recognized"
+    else 
+    	# set the action as a global var
+    	action=$1
+    fi
+}
+
+function loadConfig() {
     
-fi
+    # lookup the global config file
+    GLOBAL_CONFIG=~/.ppm
+    if [ ! -f $GLOBAL_CONFIG ]; then
+        echo "Global configuration not found!"
+        die "Can't continue..."
+    else 
+        config=$GLOBAL_CONFIG
+        readConf
+    fi
+    # look for a config file locally
+    LOCAL_CONFIG=.ppm
+    if [ -f $LOCAL_CONFIG ]; then
+        # merge with global config
+    	config=$LOCAL_CONFIG
+        readConf
+    fi
 
-# look for a config file locally
-PACKAGE_INFO=composer.json
-if [ ! -f $PACKAGE_INFO ];
-then
-    echo "Package information not available!"
-    exit
-fi
+}
 
-# parse packagr info
-json=`curl -s -X GET $PACKAGE_INFO`
-prop='require'
-picurl=`jsonval`
+function readPackageInfo {
+    # look for a config file locally
+    PACKAGE_INFO=./composer.json
+    if [ ! -f $PACKAGE_INFO ]
+    then
+        die "Package information not available!"
+    fi
+    
+    # parse package info
+    json=`cat $PACKAGE_INFO`
+    # get the fields under 'require'
+    packages=`echo $json | tokenize | parse | egrep '\["require","[^"]*"\]'`
+}
 
-echo $picurl
+function getPackages(){
 
+	# check modules folder
+    if [ "$modules_folder" == "" ]; then 
+    	return 
+    fi
+    if [ ! -d "$modules_folder" ]; then 
+    	mkdir "$modules_folder"
+        sudo chmod 0777 $modules_folder
+	fi
+    
+	for i in $packages
+    do
+        if [[ $i == \[*,*] ]]; then
+        	# this is the name of the lib
+            module=`echo $i | sed 's/.*require","\{1\}\(.*\)"]\{1,\}.*$/\1/'`
+        	remote="$repo$module.git"
+            # get the name
+            name=`echo $module | sed 's/.*\/\{1\}\(.*\)\{1,\}.*$/\1/'`
+            folder="$modules_folder$name"
+            # git commands
+            sudo git submodule add $remote $folder
+			sudo git submodule update --init
+			#sudo git commit -m "Added submodule $module in $folder"
+        fi
+    done
+}
 
 
 # Helpers
+###################################
+
 # - parse JSON string
-function jsonval {
-    temp=`echo $json | sed 's/\\\\\//\//g' | sed 's/[{}]//g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed 's/\"\:\"/\|/g' | sed 's/[\,]/ /g' | sed 's/\"//g' | grep -w $prop`
-    echo ${temp##*|}
+tokenize () {
+  local ESCAPE='(\\[^u[:cntrl:]]|\\u[0-9a-fA-F]{4})'
+  local CHAR='[^[:cntrl:]"\\]'
+  local STRING="\"$CHAR*($ESCAPE$CHAR*)*\""
+  local NUMBER='-?(0|[1-9][0-9]*)([.][0-9]*)?([eE][+-]?[0-9]*)?'
+  local KEYWORD='null|false|true'
+  local SPACE='[[:space:]]+'
+  egrep -ao "$STRING|$NUMBER|$KEYWORD|$SPACE|." --color=never |
+    egrep -v "^$SPACE$"  # eat whitespace
 }
 
+parse_array () {
+  local index=0
+  local ary=''
+  read -r token
+  case "$token" in
+    ']') ;;
+    *)
+      while :
+      do
+        parse_value "$1" "$index"
+        let index=$index+1
+        ary="$ary""$value" 
+        read -r token
+        case "$token" in
+          ']') break ;;
+          ',') ary="$ary," ;;
+          *) die "EXPECTED , or ] GOT ${token:-EOF}" ;;
+        esac
+        read -r token
+      done
+      ;;
+  esac
+  value=`printf '[%s]' "$ary"`
+}
+
+parse_object () {
+  local key
+  local obj=''
+  read -r token
+  case "$token" in
+    '}') ;;
+    *)
+      while :
+      do
+        case "$token" in
+          '"'*'"') key=$token ;;
+          *) die "EXPECTED string GOT ${token:-EOF}" ;;
+        esac
+        read -r token
+        case "$token" in
+          ':') ;;
+          *) die "EXPECTED : GOT ${token:-EOF}" ;;
+        esac
+        read -r token
+        parse_value "$1" "$key"
+        obj="$obj$key:$value"        
+        read -r token
+        case "$token" in
+          '}') break ;;
+          ',') obj="$obj," ;;
+          *) die "EXPECTED , or } GOT ${token:-EOF}" ;;
+        esac
+        read -r token
+      done
+    ;;
+  esac
+  value=`printf '{%s}' "$obj"`
+}
+
+parse_value () {
+  local jpath="${1:+$1,}$2"
+  case "$token" in
+    '{') parse_object "$jpath" ;;
+    '[') parse_array  "$jpath" ;;
+    # At this point, the only valid single-character tokens are digits.
+    ''|[^0-9]) die "EXPECTED value GOT ${token:-EOF}" ;;
+    *) value=$token ;;
+  esac
+  printf "[%s]\t%s\n" "$jpath" "$value"
+}
+
+parse () {
+  read -r token
+  parse_value
+  read -r token
+  case "$token" in
+    '') ;;
+    *) die "EXPECTED EOF GOT $token" ;;
+  esac
+}
+
+
+# - read cofiguration file
+# read a file line by line
+function readConf() {
+	while IFS='=' read var val
+    do
+        if [ -z "$var" ] ; then
+            section=""
+        elif [[ $var == \[*] ]]
+        then
+            section=${var:1:(${#var}-2)}
+        # exclude lines starting with # and ;
+        elif [[ $var != \;* ]] && [[ $var != \#* ]];
+        then
+        	#clean whitespace
+        	var="${var#"${var%%[![:space:]]*}"}"   # remove leading whitespace characters
+			var="${var%"${var##*[![:space:]]}"}"   # remove trailing whitespace characters
+			
+            if [[ $val ]]; then
+            	#clean whitespace
+        		val="${val#"${val%%[![:space:]]*}"}"   # remove leading whitespace characters
+				val="${val%"${val##*[![:space:]]}"}"   # remove trailing whitespace characters
+				# save configuration 
+                declare -a "$section[$var]=$val"
+                
+            fi
+        fi
+    done < $config
+
+	# global vars
+    repo=`echo "${repositories[github]}"`
+    modules_folder=`echo "${core[modules_folder]}"`
+}
+
+function die(){
+  echo $@
+  exit 1
+}
+
+# Logic
+#####################################
+
+# variables
+action=""
+repo=""
+modules_folder=""
+packages=""
+
+# basic logic
+getAction $1 $2
+loadConfig
+readPackageInfo
+getPackages
+
+# die "Done!"
